@@ -1,118 +1,84 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from io import BytesIO
-import base64
-import os
-from datetime import datetime
 
-st.set_page_config(page_title="InsightEdge: BI Dashboard", layout="wide")
-st.title("📊 InsightEdge: Business Intelligence Dashboard")
-st.markdown("Upload your JSON, CSV, or Excel file containing either Sales or Expense records.")
+st.set_page_config(page_title="InsightEdge Dashboard", layout="wide")
+st.title("📊 InsightEdge: Sales & Expense Analyzer")
 
-if 'theme' not in st.session_state:
-    st.session_state.theme = "light"
-
-def toggle_theme():
-    st.session_state.theme = "dark" if st.session_state.theme == "light" else "light"
-
-st.button("Toggle Dark/Light Mode", on_click=toggle_theme)
-
-uploaded_file = st.file_uploader("📂 Upload your JSON, CSV, or Excel file", type=["json", "csv", "xlsx"])
+uploaded_file = st.file_uploader("Upload a Sales, Expense, or Mixed file (CSV, Excel, JSON)", type=["csv", "xlsx", "json"])
 
 if uploaded_file:
     try:
-        if uploaded_file.name.endswith("json"):
-            df = pd.read_json(uploaded_file)
-        elif uploaded_file.name.endswith("csv"):
+        # STEP 1: Load file
+        if uploaded_file.name.endswith(".csv"):
             df = pd.read_csv(uploaded_file)
-        elif uploaded_file.name.endswith("xlsx"):
-            df = pd.read_excel(uploaded_file, engine='openpyxl')
+        elif uploaded_file.name.endswith(".xlsx"):
+            df = pd.read_excel(uploaded_file)
+        elif uploaded_file.name.endswith(".json"):
+            df = pd.read_json(uploaded_file)
 
-        # Ensure 'Date' column exists
+        st.subheader("📄 Raw Data Preview")
+        st.write(df.head())
+
+        # STEP 2: Check & convert Date
         if "Date" not in df.columns:
-            st.warning("🕒 'Date' column not found. Please select the correct one.")
-            possible_dates = [col for col in df.columns if "date" in col.lower()]
-            if possible_dates:
-                date_column = st.selectbox("Select date column", options=possible_dates)
-                df["Date"] = pd.to_datetime(df[date_column])
+            possible_date_cols = [col for col in df.columns if "date" in col.lower()]
+            if possible_date_cols:
+                df["Date"] = pd.to_datetime(df[possible_date_cols[0]])
             else:
-                st.error("🚫 No date-like column found.")
+                st.error("No 'Date' column found.")
                 st.stop()
         else:
             df["Date"] = pd.to_datetime(df["Date"])
 
-        # Check if the file looks like Sales or Expenses, and assign Type accordingly
-        if "Amount" not in df.columns and "Total Price" not in df.columns:
-            st.error("🚫 No 'Amount' or 'Total Price' column found.")
-            st.stop()
-        elif "Amount" not in df.columns:
-            df["Amount"] = df["Total Price"]
+        # STEP 3: Normalize Amount column
+        if "Amount" not in df.columns:
+            possible_amt = [col for col in df.columns if "amount" in col.lower() or "total" in col.lower()]
+            if possible_amt:
+                df["Amount"] = df[possible_amt[0]]
+            else:
+                st.error("No 'Amount' or 'Total Price' column found.")
+                st.stop()
 
-        # Check if it's Sales-only or Expense-only by looking for the common words in column names or values
-        if "Sales" in df.columns or any(df.columns.str.contains("sales", case=False)):
-            df["Type"] = "Sales"
-        elif "Expense" in df.columns or any(df.columns.str.contains("expense", case=False)):
-            df["Type"] = "Expense"
+        # STEP 4: Handle Type column
+        if "Type" not in df.columns:
+            st.warning("No 'Type' column found. Select what this file contains:")
+            selected_type = st.radio("Select File Type", ["Sales", "Expense"])
+            df["Type"] = selected_type
         else:
-            # If no "Sales" or "Expense" indicators are found, assume "Expense"
-            st.warning("🚫 'Type' column is missing. Assuming all records are 'Expense'.")
-            df["Type"] = "Expense"  # Default all records to 'Expense'
+            unique_types = df["Type"].unique()
+            st.success(f"✅ Detected data types: {', '.join(unique_types)}")
 
-        # Sidebar filters
-        st.sidebar.header("Filters")
-        min_date = df["Date"].min().date()
-        max_date = df["Date"].max().date()
-        date_range = st.sidebar.date_input("Date range", [min_date, max_date], min_value=min_date, max_value=max_date)
-
-        type_filter = st.sidebar.multiselect("Select Type", options=df["Type"].unique(), default=df["Type"].unique())
-        category_filter = st.sidebar.multiselect("Category Filter", options=df["Product"].unique() if "Product" in df.columns else [], default=None)
+        # Filters
+        st.sidebar.header("🔍 Filters")
+        date_range = st.sidebar.date_input("Filter by Date", [df["Date"].min().date(), df["Date"].max().date()])
+        type_filter = st.sidebar.multiselect("Type", options=df["Type"].unique(), default=df["Type"].unique())
 
         df_filtered = df[
-            (df["Date"].between(date_range[0], date_range[1])) & 
+            (df["Date"] >= pd.to_datetime(date_range[0])) &
+            (df["Date"] <= pd.to_datetime(date_range[1])) &
             (df["Type"].isin(type_filter))
         ]
-        if category_filter and "Product" in df.columns:
-            df_filtered = df_filtered[df_filtered["Product"].isin(category_filter)]
 
-        with st.expander("📋 Raw Data Preview"):
-            st.dataframe(df_filtered)
-
-        # Summary Calculations
+        # KPIs
         total_sales = df_filtered[df_filtered["Type"] == "Sales"]["Amount"].sum()
         total_expenses = df_filtered[df_filtered["Type"] == "Expense"]["Amount"].sum()
         net_profit = total_sales - total_expenses
 
-        col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
-        col_kpi1.metric("💰 Total Sales", f"{total_sales:,.2f}")
-        col_kpi2.metric("🧾 Total Expenses", f"{total_expenses:,.2f}")
-        col_kpi3.metric("📈 Net Profit", f"{net_profit:,.2f}", delta=f"{(net_profit/total_sales*100 if total_sales else 0):.1f}%")
+        kpi1, kpi2, kpi3 = st.columns(3)
+        kpi1.metric("💰 Total Sales", f"{total_sales:,.2f}")
+        kpi2.metric("🧾 Total Expenses", f"{total_expenses:,.2f}")
+        kpi3.metric("📈 Net Profit", f"{net_profit:,.2f}")
 
         # Charts
-        col1, col2 = st.columns(2)
-        with col1:
-            sales_data = df_filtered[df_filtered["Type"] == "Sales"]
-            if not sales_data.empty:
-                fig_sales = px.line(sales_data, x="Date", y="Amount", title="📈 Sales Over Time")
-                st.plotly_chart(fig_sales, use_container_width=True)
-        with col2:
-            expense_data = df_filtered[df_filtered["Type"] == "Expense"]
-            if not expense_data.empty:
-                fig_exp = px.line(expense_data, x="Date", y="Amount", title="💸 Expenses Over Time", color_discrete_sequence=["red"])
-                st.plotly_chart(fig_exp, use_container_width=True)
+        df_grouped = df_filtered.groupby(["Date", "Type"])["Amount"].sum().reset_index()
+        fig = px.area(df_grouped, x="Date", y="Amount", color="Type", title="Sales vs Expenses Over Time")
+        st.plotly_chart(fig, use_container_width=True)
 
-        if not df_filtered.empty:
-            grouped = df_filtered.groupby(["Type", "Date"])["Amount"].sum().reset_index()
-            fig_combo = px.area(grouped, x="Date", y="Amount", color="Type", title="📊 Combined Sales & Expenses")
-            st.plotly_chart(fig_combo, use_container_width=True)
-
-        st.sidebar.header("Export Filtered Data")
-        def convert_df(df):
-            return df.to_csv(index=False).encode('utf-8')
-        csv = convert_df(df_filtered)
-        st.sidebar.download_button("⬇️ Download CSV", csv, "filtered_data.csv", "text/csv")
+        # Download button
+        st.sidebar.download_button("⬇ Download Filtered Data", df_filtered.to_csv(index=False).encode("utf-8"), "filtered_data.csv", "text/csv")
 
     except Exception as e:
-        st.error(f"❌ Something went wrong: {e}")
+        st.error(f"❌ Error: {e}")
 else:
-    st.info("📁 Upload a file to begin analysis.")
+    st.info("📥 Upload your file to get started.")
