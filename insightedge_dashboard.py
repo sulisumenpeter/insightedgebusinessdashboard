@@ -81,21 +81,27 @@ if uploaded_file:
         kpi2.metric("🧾 Total Expenses", f"{total_expenses:,.2f}")
         kpi3.metric("📈 Net Profit", f"{net_profit:,.2f}")
 
-        # Time-based trend
+        # Time-based trend (Line Chart)
         df_filtered["Month"] = df_filtered["Date"].dt.to_period("M").astype(str)
         df_filtered["Week"] = df_filtered["Date"].dt.to_period("W").astype(str)
 
         time_col = "Month" if view_mode == "Monthly" else "Week"
         trend_df = df_filtered.groupby([time_col, "Type"])["Amount"].sum().reset_index()
 
-        fig = px.line(trend_df, x=time_col, y="Amount", color="Type", title=f"{view_mode} Trends: Sales vs Expenses")
-        st.plotly_chart(fig, use_container_width=True)
+        fig_line = px.line(trend_df, x=time_col, y="Amount", color="Type", title=f"{view_mode} Trends: Sales vs Expenses")
+        st.plotly_chart(fig_line, use_container_width=True)
 
-        # Optional Breakdown
+        # Optional Breakdown (Bar Chart)
+        if breakdown_choice != "None":
+            bar_df = df_filtered.groupby([breakdown_choice, "Type"])["Amount"].sum().reset_index()
+            fig_bar = px.bar(bar_df, x=breakdown_choice, y="Amount", color="Type", title=f"{breakdown_choice} Breakdown (Bar Chart)")
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+        # Optional Breakdown (Pie Chart)
         if breakdown_choice != "None":
             pie_df = df_filtered.groupby([breakdown_choice])["Amount"].sum().reset_index()
-            fig2 = px.pie(pie_df, names=breakdown_choice, values="Amount", title=f"{breakdown_choice} Breakdown (Pie Chart)")
-            st.plotly_chart(fig2, use_container_width=True)
+            fig_pie = px.pie(pie_df, names=breakdown_choice, values="Amount", title=f"{breakdown_choice} Breakdown (Pie Chart)")
+            st.plotly_chart(fig_pie, use_container_width=True)
 
         # Heatmap
         df_filtered["Hour"] = df_filtered["Date"].dt.hour
