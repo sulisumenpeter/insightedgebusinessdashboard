@@ -8,7 +8,7 @@ from datetime import datetime
 
 st.set_page_config(page_title="InsightEdge: BI Dashboard", layout="wide")
 st.title("📊 InsightEdge: Business Intelligence Dashboard")
-st.markdown("Upload your JSON, CSV, or Excel file containing both sales and expense records.")
+st.markdown("Upload your JSON, CSV, or Excel file containing either Sales or Expense records.")
 
 if 'theme' not in st.session_state:
     st.session_state.theme = "light"
@@ -42,19 +42,22 @@ if uploaded_file:
         else:
             df["Date"] = pd.to_datetime(df["Date"])
 
-        # Ensure 'Type' exists to differentiate Sales vs Expenses
-        if "Type" not in df.columns:
-            st.error("🚫 'Type' column is missing. Please include a column labeled 'Type' with values like 'Sales' or 'Expense'.")
-            st.stop()
-
-        # Ensure 'Amount' column exists
+        # Check if the file looks like Sales or Expenses, and assign Type accordingly
         if "Amount" not in df.columns and "Total Price" not in df.columns:
             st.error("🚫 No 'Amount' or 'Total Price' column found.")
             st.stop()
         elif "Amount" not in df.columns:
             df["Amount"] = df["Total Price"]
 
-        df["Type"] = df["Type"].str.capitalize()
+        # Check if it's Sales-only or Expense-only by looking for the common words in column names or values
+        if "Sales" in df.columns or any(df.columns.str.contains("sales", case=False)):
+            df["Type"] = "Sales"
+        elif "Expense" in df.columns or any(df.columns.str.contains("expense", case=False)):
+            df["Type"] = "Expense"
+        else:
+            # If no "Sales" or "Expense" indicators are found, assume "Expense"
+            st.warning("🚫 'Type' column is missing. Assuming all records are 'Expense'.")
+            df["Type"] = "Expense"  # Default all records to 'Expense'
 
         # Sidebar filters
         st.sidebar.header("Filters")
@@ -66,7 +69,7 @@ if uploaded_file:
         category_filter = st.sidebar.multiselect("Category Filter", options=df["Product"].unique() if "Product" in df.columns else [], default=None)
 
         df_filtered = df[
-            (df["Date"].between(date_range[0], date_range[1])) &
+            (df["Date"].between(date_range[0], date_range[1])) & 
             (df["Type"].isin(type_filter))
         ]
         if category_filter and "Product" in df.columns:
