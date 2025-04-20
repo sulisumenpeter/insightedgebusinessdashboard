@@ -46,6 +46,7 @@ if uploaded_file:
             selected_type = st.radio("Select File Type", ["Sales", "Expense"])
             df["Type"] = selected_type
         else:
+            df["Type"] = df["Type"].str.strip().str.capitalize()  # Normalize e.g., 'sales' -> 'Sales'
             unique_types = df["Type"].unique()
             st.success(f"✅ Detected data types: {', '.join(unique_types)}")
 
@@ -60,9 +61,9 @@ if uploaded_file:
             (df["Type"].isin(type_filter))
         ]
 
-        # KPIs
-        total_sales = df_filtered[df_filtered["Type"] == "Sales"]["Amount"].sum()
-        total_expenses = df_filtered[df_filtered["Type"] == "Expense"]["Amount"].sum()
+        # KPIs - check if each type exists to avoid errors
+        total_sales = df_filtered[df_filtered["Type"] == "Sales"]["Amount"].sum() if "Sales" in df_filtered["Type"].values else 0
+        total_expenses = df_filtered[df_filtered["Type"] == "Expense"]["Amount"].sum() if "Expense" in df_filtered["Type"].values else 0
         net_profit = total_sales - total_expenses
 
         kpi1, kpi2, kpi3 = st.columns(3)
@@ -71,9 +72,12 @@ if uploaded_file:
         kpi3.metric("📈 Net Profit", f"{net_profit:,.2f}")
 
         # Charts
-        df_grouped = df_filtered.groupby(["Date", "Type"])["Amount"].sum().reset_index()
-        fig = px.area(df_grouped, x="Date", y="Amount", color="Type", title="Sales vs Expenses Over Time")
-        st.plotly_chart(fig, use_container_width=True)
+        if not df_filtered.empty:
+            df_grouped = df_filtered.groupby(["Date", "Type"])["Amount"].sum().reset_index()
+            fig = px.area(df_grouped, x="Date", y="Amount", color="Type", title="Sales vs Expenses Over Time")
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.warning("No data available for the selected filters.")
 
         # Download button
         st.sidebar.download_button("⬇ Download Filtered Data", df_filtered.to_csv(index=False).encode("utf-8"), "filtered_data.csv", "text/csv")
